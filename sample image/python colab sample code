@@ -1,0 +1,140 @@
+from google.colab import drive
+drive.mount('/content/gdrive')
+
+rom google.colab import drive
+
+# Define the base path to your data in Google Drive
+base_data_path = '/content/gdrive/MyDrive/touchtest2'
+#base_data_path = '/content/gdrive/MyDrive/touchtest1'
+
+# Now we will prepare the data for training. First, let's load the necessary libraries.
+import os
+import tensorflow as tf
+from tensorflow.keras.preprocessing.image import ImageDataGenerator
+
+# Define paths for the 'line' and 'random' subfolders
+line_folder = os.path.join(base_data_path, 'line')
+random_folder = os.path.join(base_data_path, 'random')
+
+# Image dimensions and batch size
+img_height, img_width = 128, 128 # You can adjust these as needed
+batch_size = 32
+
+# Create ImageDataGenerator for data augmentation and splitting
+# We'll use 80% for training and 20% for validation
+datagen = ImageDataGenerator(
+    rescale=1./255, # Normalize pixel values to [0, 1]
+    validation_split=0.2, # 20% of data for validation
+    rotation_range=20,
+    width_shift_range=0.2,
+    height_shift_range=0.2,
+    shear_range=0.2,
+    zoom_range=0.2,
+    horizontal_flip=True,
+    fill_mode='nearest'
+)
+
+# Create training generator
+train_generator = datagen.flow_from_directory(
+    base_data_path,
+    target_size=(img_height, img_width),
+    batch_size=batch_size,
+    class_mode='binary', # Since we have two classes: 'line' and 'random'
+    subset='training', # Specify this is for training data
+    classes=['line', 'random'] # Explicitly include only 'line' and 'random' for binary classification
+)
+
+# Create validation generator
+validation_generator = datagen.flow_from_directory(
+    base_data_path,
+    target_size=(img_height, img_width),
+    batch_size=batch_size,
+    class_mode='binary', # Since we have two classes: 'line' and 'random'
+    subset='validation', # Specify this is for validation data
+    classes=['line', 'random'] # Explicitly include only 'line' and 'random' for binary classification
+)
+
+print(f"Found {train_generator.samples} training images belonging to {train_generator.num_classes} classes.")
+print(f"Found {validation_generator.samples} validation images belonging to {validation_generator.num_classes} classes.")
+
+# Now, let's define and compile the CNN model
+model = tf.keras.models.Sequential([
+    tf.keras.layers.Conv2D(32, (3, 3), activation='relu', input_shape=(img_height, img_width, 3)),
+    tf.keras.layers.MaxPooling2D((2, 2)),
+    tf.keras.layers.Conv2D(64, (3, 3), activation='relu'),
+    tf.keras.layers.MaxPooling2D((2, 2)),
+    tf.keras.layers.Conv2D(128, (3, 3), activation='relu'),
+    tf.keras.layers.MaxPooling2D((2, 2)),
+    tf.keras.layers.Flatten(),
+    tf.keras.layers.Dense(128, activation='relu'),
+    tf.keras.layers.Dense(1, activation='sigmoid') # Sigmoid for binary classification
+])
+
+model.compile(optimizer='adam',
+              loss='binary_crossentropy',
+              metrics=['accuracy'])
+
+model.summary()
+
+# Finally, train the model
+history = model.fit(
+    train_generator,
+    epochs=10, # You can adjust the number of epochs
+    validation_data=validation_generator
+)
+
+print("Model training complete!")
+
+import numpy as np
+import matplotlib.pyplot as plt
+import random
+import os
+
+# Assuming `model`, `validation_generator`, `img_height`, `img_width` are available from previous execution
+
+# Get class names from the generator (assuming alphabetical order for flow_from_directory)
+# If you need to verify, you can print validation_generator.class_indices
+class_names = list(validation_generator.class_indices.keys())
+# Ensure the class_names order matches the binary output: 0 for line, 1 for random
+# If 'line' is 0 and 'random' is 1, then the prediction (sigmoid output) directly represents the probability of 'random'.
+# Let's confirm: print(train_generator.class_indices)
+
+# --- Select a random image from the validation generator ---
+# Get a random batch index
+random_batch_idx = random.randint(0, len(validation_generator) - 1)
+
+# Get a random batch
+images, labels = validation_generator[random_batch_idx]
+
+# Get a random image index within the batch
+random_image_idx = random.randint(0, len(images) - 1)
+
+# Extract the random image and its true label
+img = images[random_image_idx]
+true_label_idx = int(labels[random_image_idx]) # Binary labels are 0 or 1
+true_label = class_names[true_label_idx]
+
+# --- Preprocess and predict ---
+# The model expects a batch of images, so expand dimensions for a single image
+img_for_prediction = np.expand_dims(img, axis=0)
+
+# Make a prediction
+prediction = model.predict(img_for_prediction)[0][0] # Output is a single value (probability for class 1)
+
+# Determine predicted class and confidence
+if prediction >= 0.5:
+    predicted_label = class_names[1]  # Assuming class_names[1] is 'random'
+    confidence = prediction * 100
+else:
+    predicted_label = class_names[0]  # Assuming class_names[0] is 'line'
+    confidence = (1 - prediction) * 100
+
+# --- Display results ---
+plt.figure(figsize=(6, 6))
+plt.imshow(img)
+plt.title(f"True Label: {true_label}\nPredicted: {predicted_label} (Confidence: {confidence:.2f}%) ")
+plt.axis('off')
+plt.show()
+
+print(f"The true label for this image was: {true_label}")
+print(f"The model predicted: {predicted_label} with {confidence:.2f}% confidence.")
